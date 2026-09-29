@@ -58,7 +58,10 @@ def calculate_match(resume: str, job_description: str) -> dict:
     skill_coverage = len(matched) / len(job_skills) if job_skills else similarity
 
     # Blend lexical similarity with explicit required-skill coverage.
-    score = round(min(100, (similarity * 45 + skill_coverage * 55) * 100))
+    weighted_score = similarity * 45 + skill_coverage * 55
+    # When requirements list recognised skills, the score is their exact coverage.
+    # For example, 1 matched skill out of 4 is always 25%.
+    score = round(skill_coverage * 100) if job_skills else round(weighted_score * 100)
     category = "High Match" if score >= 70 else "Medium Match" if score >= 40 else "Low Match"
     return {
         "score": score,
@@ -127,4 +130,4 @@ if st.button("Analyze Match", type="primary", use_container_width=True):
         with st.expander("Analysis details"):
             st.write("Resume skills detected:", ", ".join(result["resume_skills"]) or "None")
             st.write("Job skills detected:", ", ".join(result["job_skills"]) or "None")
-            st.caption("Score = 45% TF-IDF cosine similarity + 55% required-skill coverage. Categories use transparent score thresholds.")
+            st.caption("Score equals required-skill coverage when job skills are detected; otherwise it uses TF-IDF text similarity.")
