@@ -19,6 +19,23 @@ SKILLS = {
     "Tableau", "Excel", "AWS", "Azure", "GCP", "Docker", "Kubernetes", "Git",
     "Linux", "MongoDB", "PostgreSQL", "MySQL", "REST API", "GraphQL", "Spark",
     "Hadoop", "Airflow", "CI/CD", "Selenium", "Figma", "Agile", "Jira",
+    "Artificial Intelligence", "Agentic AI", "NLP", "Natural Language Processing",
+    "Matplotlib", "Seaborn", "OpenCV", "JDBC", "GitHub", "Jenkins", "API",
+    "Speech Recognition", "Data Preprocessing",
+}
+
+SKILL_ALIASES = {
+    "Power BI": ("PowerBI",),
+}
+
+ROLE_PROFILES = {
+    "software developer": (
+        ("Programming languages", ("Python", "Java", "C++", "C", "JavaScript", "TypeScript", "C#")),
+        ("Web development", ("React", "HTML", "CSS", "JavaScript", "Node.js", "Angular", "Vue")),
+        ("Database", ("SQL", "MySQL", "PostgreSQL", "MongoDB", "JDBC")),
+        ("Version control", ("Git", "GitHub")),
+        ("Build and delivery tools", ("Jenkins", "Docker", "CI/CD")),
+    ),
 }
 
 
@@ -39,8 +56,14 @@ def find_skills(text: str, skills: Iterable[str] = SKILLS) -> list[str]:
     normalized = normalize(text)
     found = []
     for skill in skills:
-        pattern = r"(?<![a-z0-9])" + re.escape(skill.lower()) + r"(?![a-z0-9])"
-        if re.search(pattern, normalized):
+        variants = (skill, *SKILL_ALIASES.get(skill, ()))
+        if any(
+            re.search(
+                r"(?<![a-z0-9])" + re.escape(variant.lower()) + r"(?![a-z0-9])",
+                normalized,
+            )
+            for variant in variants
+        ):
             found.append(skill)
     return sorted(found, key=str.lower)
 
@@ -53,6 +76,14 @@ def find_keywords(text: str) -> list[str]:
     )
 
 
+def find_role_profile(job_description: str) -> tuple[str, ...] | None:
+    normalized = normalize(job_description)
+    for title, requirements in ROLE_PROFILES.items():
+        if re.search(r"\b" + re.escape(title) + r"\b", normalized):
+            return requirements
+    return None
+
+
 def calculate_match(resume: str, job_description: str) -> dict:
     resume_skills = find_skills(resume)
     job_skills = find_skills(job_description)
@@ -63,17 +94,41 @@ def calculate_match(resume: str, job_description: str) -> dict:
     matched_terms = sorted(set(job_terms) & resume_terms)
     missing_terms = sorted(set(job_terms) - resume_terms)
 
-    # Keep exact skill coverage when the job lists known skills; otherwise compare
-    # meaningful job-description words directly, including short job titles.
-    terms_to_match = job_skills if job_skills else job_terms
-    matched_terms_count = len(matched) if job_skills else len(matched_terms)
-    score = round(matched_terms_count / len(terms_to_match) * 100) if terms_to_match else 0
+    role_profile = find_role_profile(job_description) if not job_skills else None
+    if job_skills:
+        required_items = job_skills
+        matched_items = matched
+        missing_items = missing
+        match_basis = "job skills"
+    elif role_profile:
+        matched_items = [
+            f"{label}: {', '.join(sorted(set(options) & set(resume_skills), key=str.lower))}"
+            for label, options in role_profile
+            if set(options) & set(resume_skills)
+        ]
+        missing_items = [
+            label for label, options in role_profile
+            if not set(options) & set(resume_skills)
+        ]
+        required_items = [label for label, _ in role_profile]
+        match_basis = "general software developer role profile"
+    else:
+        required_items = job_terms
+        matched_items = matched_terms
+        missing_items = missing_terms
+        match_basis = "job keywords"
+
+    score = round(len(matched_items) / len(required_items) * 100) if required_items else 0
     category = "High Match" if score >= 70 else "Medium Match" if score >= 40 else "Low Match"
     return {
         "score": score,
         "category": category,
         "matched": matched,
         "missing": missing,
+        "matched_items": matched_items,
+        "missing_items": missing_items,
+        "required_items": required_items,
+        "match_basis": match_basis,
         "resume_skills": resume_skills,
         "job_skills": job_skills,
         "matched_terms": matched_terms,
@@ -119,31 +174,34 @@ if st.button("Analyze Match", type="primary", use_container_width=True):
         score, category, skills = st.columns([1, 1, 2])
         score.metric("Match Score", f"{result['score']}%")
         category.metric("Prediction", result["category"])
-        if result["job_skills"]:
+        if result["match_basis"] == "job skills":
             skills.metric(
                 "Required Skills Covered",
-                f"{len(result['matched'])}/{len(result['job_skills'])}",
+                f"{len(result['matched_items'])}/{len(result['required_items'])}",
+            )
+        elif result["match_basis"] == "general software developer role profile":
+            skills.metric(
+                "Role Requirements Covered",
+                f"{len(result['matched_items'])}/{len(result['required_items'])}",
             )
         else:
             skills.metric(
                 "Job Keywords Matched",
-                f"{len(result['matched_terms'])}/{len(result['job_terms'])}",
+                f"{len(result['matched_items'])}/{len(result['required_items'])}",
             )
 
         matched_col, missing_col = st.columns(2)
         with matched_col:
-            st.subheader("Matched Skills" if result["job_skills"] else "Matched Job Keywords")
-            matched_items = result["matched"] if result["job_skills"] else result["matched_terms"]
-            if matched_items:
-                st.success("\n".join(f"[Matched] {item}" for item in matched_items))
+            st.subheader("Matched Skills" if result["match_basis"] != "job keywords" else "Matched Job Keywords")
+            if result["matched_items"]:
+                st.success("\n".join(f"[Matched] {item}" for item in result["matched_items"]))
             else:
                 st.info("No matching job skills or keywords were found in the resume.")
         with missing_col:
-            st.subheader("Missing Skills" if result["job_skills"] else "Missing Job Keywords")
-            missing_items = result["missing"] if result["job_skills"] else result["missing_terms"]
-            if missing_items:
-                st.warning("\n".join(f"[Missing] {item}" for item in missing_items))
-                st.info("Recommendation: focus on " + ", ".join(missing_items[:3]) + ".")
+            st.subheader("Missing Skills" if result["match_basis"] != "job keywords" else "Missing Job Keywords")
+            if result["missing_items"]:
+                st.warning("\n".join(f"[Missing] {item}" for item in result["missing_items"]))
+                st.info("Recommendation: focus on " + ", ".join(result["missing_items"][:3]) + ".")
             else:
                 st.success("No listed job skills or keywords are missing. Nice work.")
 
@@ -151,4 +209,5 @@ if st.button("Analyze Match", type="primary", use_container_width=True):
             st.write("Resume skills detected:", ", ".join(result["resume_skills"]) or "None")
             st.write("Job skills detected:", ", ".join(result["job_skills"]) or "None")
             st.write("Job keywords detected:", ", ".join(result["job_terms"]) or "None")
-            st.caption("Score equals required-skill coverage when recognised skills are detected; otherwise it is the percentage of meaningful job keywords found in the resume.")
+            st.write("Matching method:", result["match_basis"])
+            st.caption("A title-only Software Developer match uses broad skill groups and counts a group as covered when the resume contains at least one listed technology. When a description names skills, the score is based on those listed skills.")

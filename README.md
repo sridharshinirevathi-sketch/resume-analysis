@@ -23,7 +23,7 @@ Alternatively, select **New +** → **Static Site**, choose the repository, leav
 
 - Resume PDF text is extracted with `pypdf`.
 - Both inputs are normalized before matching.
-- A curated technical-skills dictionary identifies matched and missing job skills.
-- When the job description contains recognised skills, the final score equals required-skill coverage. Otherwise, meaningful job-description keywords are compared directly with the resume, so short job titles such as “software developer” are analyzed word by word.
+- A curated technical-skills dictionary identifies matched and missing job skills, including common aliases such as `PowerBI` for `Power BI`.
+- When the job description contains recognised skills, the final score equals required-skill coverage. A title-only `Software Developer` input uses a general role profile: a skill group is covered when the resume contains at least one listed technology in that group. Other unrecognized descriptions are compared using meaningful keywords.
 
 The category is intentionally rule-based and explainable. To train a Logistic Regression or Random Forest classifier, add a labelled historical dataset of resume/job-description pairs and replace the threshold classifier with the trained model.
