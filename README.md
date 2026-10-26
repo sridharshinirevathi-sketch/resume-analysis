@@ -1,6 +1,6 @@
 # Resume Job Match Predictor
 
-A college-level NLP resume analysis project using PDF text extraction, TF-IDF, cosine similarity, and transparent skill-gap analysis.
+A college-level resume analysis project using PDF text extraction, direct job-keyword matching, and transparent skill-gap analysis.
 
 ## Run locally
 
@@ -22,9 +22,8 @@ Alternatively, select **New +** → **Static Site**, choose the repository, leav
 ## How scoring works
 
 - Resume PDF text is extracted with `pypdf`.
-- Both inputs are normalized before TF-IDF vectorization.
-- Cosine similarity measures overall text relevance.
+- Both inputs are normalized before matching.
 - A curated technical-skills dictionary identifies matched and missing job skills.
-- When the job description contains recognised skills, the final score equals required-skill coverage. Otherwise, it uses text similarity. This prevents general text overlap from hiding missing required skills.
+- When the job description contains recognised skills, the final score equals required-skill coverage. Otherwise, meaningful job-description keywords are compared directly with the resume, so short job titles such as “software developer” are analyzed word by word.
 
 The category is intentionally rule-based and explainable. To train a Logistic Regression or Random Forest classifier, add a labelled historical dataset of resume/job-description pairs and replace the threshold classifier with the trained model.

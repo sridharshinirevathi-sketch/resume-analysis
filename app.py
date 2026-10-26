@@ -8,8 +8,7 @@ from typing import Iterable
 
 import streamlit as st
 from pypdf import PdfReader
-from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS, TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 
 
 SKILLS = {
@@ -46,22 +45,29 @@ def find_skills(text: str, skills: Iterable[str] = SKILLS) -> list[str]:
     return sorted(found, key=str.lower)
 
 
-def calculate_match(resume: str, job_description: str) -> dict:
-    vectorizer = TfidfVectorizer(stop_words=list(ENGLISH_STOP_WORDS), ngram_range=(1, 2))
-    matrix = vectorizer.fit_transform([normalize(resume), normalize(job_description)])
-    similarity = float(cosine_similarity(matrix[0], matrix[1])[0][0])
+def find_keywords(text: str) -> list[str]:
+    """Extract meaningful words for matching non-catalogued job titles and terms."""
+    words = re.findall(r"[a-z]+", normalize(text))
+    return sorted(
+        {word for word in words if len(word) > 1 and word not in ENGLISH_STOP_WORDS}
+    )
 
+
+def calculate_match(resume: str, job_description: str) -> dict:
     resume_skills = find_skills(resume)
     job_skills = find_skills(job_description)
     matched = sorted(set(resume_skills) & set(job_skills), key=str.lower)
     missing = sorted(set(job_skills) - set(resume_skills), key=str.lower)
-    skill_coverage = len(matched) / len(job_skills) if job_skills else similarity
+    job_terms = find_keywords(job_description)
+    resume_terms = set(find_keywords(resume))
+    matched_terms = sorted(set(job_terms) & resume_terms)
+    missing_terms = sorted(set(job_terms) - resume_terms)
 
-    # Blend lexical similarity with explicit required-skill coverage.
-    weighted_score = similarity * 45 + skill_coverage * 55
-    # When requirements list recognised skills, the score is their exact coverage.
-    # For example, 1 matched skill out of 4 is always 25%.
-    score = round(skill_coverage * 100) if job_skills else round(weighted_score * 100)
+    # Keep exact skill coverage when the job lists known skills; otherwise compare
+    # meaningful job-description words directly, including short job titles.
+    terms_to_match = job_skills if job_skills else job_terms
+    matched_terms_count = len(matched) if job_skills else len(matched_terms)
+    score = round(matched_terms_count / len(terms_to_match) * 100) if terms_to_match else 0
     category = "High Match" if score >= 70 else "Medium Match" if score >= 40 else "Low Match"
     return {
         "score": score,
@@ -70,6 +76,9 @@ def calculate_match(resume: str, job_description: str) -> dict:
         "missing": missing,
         "resume_skills": resume_skills,
         "job_skills": job_skills,
+        "matched_terms": matched_terms,
+        "missing_terms": missing_terms,
+        "job_terms": job_terms,
     }
 
 
@@ -110,24 +119,36 @@ if st.button("Analyze Match", type="primary", use_container_width=True):
         score, category, skills = st.columns([1, 1, 2])
         score.metric("Match Score", f"{result['score']}%")
         category.metric("Prediction", result["category"])
-        skills.metric("Required Skills Covered", f"{len(result['matched'])}/{len(result['job_skills'])}")
+        if result["job_skills"]:
+            skills.metric(
+                "Required Skills Covered",
+                f"{len(result['matched'])}/{len(result['job_skills'])}",
+            )
+        else:
+            skills.metric(
+                "Job Keywords Matched",
+                f"{len(result['matched_terms'])}/{len(result['job_terms'])}",
+            )
 
         matched_col, missing_col = st.columns(2)
         with matched_col:
-            st.subheader("Matched Skills")
-            if result["matched"]:
-                st.success("\n".join(f"[Matched] {skill}" for skill in result["matched"]))
+            st.subheader("Matched Skills" if result["job_skills"] else "Matched Job Keywords")
+            matched_items = result["matched"] if result["job_skills"] else result["matched_terms"]
+            if matched_items:
+                st.success("\n".join(f"[Matched] {item}" for item in matched_items))
             else:
-                st.info("No catalogued job skills were found in the resume.")
+                st.info("No matching job skills or keywords were found in the resume.")
         with missing_col:
-            st.subheader("Missing Skills")
-            if result["missing"]:
-                st.warning("\n".join(f"[Missing] {skill}" for skill in result["missing"]))
-                st.info("Recommendation: focus on " + ", ".join(result["missing"][:3]) + ".")
+            st.subheader("Missing Skills" if result["job_skills"] else "Missing Job Keywords")
+            missing_items = result["missing"] if result["job_skills"] else result["missing_terms"]
+            if missing_items:
+                st.warning("\n".join(f"[Missing] {item}" for item in missing_items))
+                st.info("Recommendation: focus on " + ", ".join(missing_items[:3]) + ".")
             else:
-                st.success("No listed skills are missing. Nice work.")
+                st.success("No listed job skills or keywords are missing. Nice work.")
 
         with st.expander("Analysis details"):
             st.write("Resume skills detected:", ", ".join(result["resume_skills"]) or "None")
             st.write("Job skills detected:", ", ".join(result["job_skills"]) or "None")
-            st.caption("Score equals required-skill coverage when job skills are detected; otherwise it uses TF-IDF text similarity.")
+            st.write("Job keywords detected:", ", ".join(result["job_terms"]) or "None")
+            st.caption("Score equals required-skill coverage when recognised skills are detected; otherwise it is the percentage of meaningful job keywords found in the resume.")
