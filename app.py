@@ -59,6 +59,9 @@ def find_skills(text: str, skills: Iterable[str] = SKILLS) -> list[str]:
         variants = (skill, *SKILL_ALIASES.get(skill, ()))
         if any(
             re.search(
+                r"(?<![a-z0-9.+])c(?![a-z0-9.+])"
+                if variant == "C"
+                else
                 r"(?<![a-z0-9])" + re.escape(variant.lower()) + r"(?![a-z0-9])",
                 normalized,
             )
